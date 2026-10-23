@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1c2150">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Harmonic Descent</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="hud">
+    <div class="panel stat"><span class="label">Distance</span><span id="distance" class="value">0 m</span></div>
+    <div class="panel stat"><span class="label">Speed</span><span id="speed" class="value">0 km/h</span></div>
+  </div>
+
+  <div id="trick" class="panel" role="status"></div>
+
+  <div id="crash" class="panel hidden">
+    <strong>Wiped out</strong>
+    <span id="crashDistance">0 m</span>
+    <span class="prompt">Restart (R / Tap)</span>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
