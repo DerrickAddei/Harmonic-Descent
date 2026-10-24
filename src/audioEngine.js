@@ -67,8 +67,11 @@ export class AudioEngine {
     this.jumpCount = 0;
     this._takeoffTimer = null;
     this._lastPluck = -1;
+    this.coinChain = 0;   // consecutive coins picked up within 1.1 s: pitch climbs the pentatonic scale
+    this._lastCoin = -10;
+    this.buffLevel = 0;   // 0..1 smoothed presence of the multiplier shimmer
 
-    this.tel = { speed: 0, boost: 0, heightAboveGround: 0, nightFactor: 0, timeScale: 1, state: 'GROUNDED', airRotation: 0, combo: 0 };
+    this.tel = { speed: 0, boost: 0, heightAboveGround: 0, nightFactor: 0, timeScale: 1, state: 'GROUNDED', airRotation: 0, combo: 0, chimeActive: false, harpActive: false };
   }
 
   // ---------- lifecycle ----------
@@ -179,6 +182,19 @@ export class AudioEngine {
       return sust(i === 1 ? 'triangle' : 'sine', m + 24, i * 3 - 3, g);
     });
 
+    // multiplier-buff shimmer: three high sines on the chord (bypass the master low-pass so it stays airy),
+    // tremolo-modulated; faster tremolo for the Overdrive Harp than for the Gilded Chime.
+    this.buffGain = gain(0);
+    this.buffGain.connect(this.preComp);
+    const buffVerb = gain(0.6); this.buffGain.connect(buffVerb); buffVerb.connect(this.verb);
+    const buffTrem = gain(0.7); buffTrem.connect(this.buffGain);
+    this.buffLfo = ctx.createOscillator(); this.buffLfo.frequency.value = 4.5;
+    const buffDepth = gain(0.3); this.buffLfo.connect(buffDepth); buffDepth.connect(buffTrem.gain); this.buffLfo.start();
+    this.buffVoices = [0, 2, 3].map((n, i) => {
+      const g = gain(0.33); g.connect(buffTrem);
+      return sust(i === 1 ? 'triangle' : 'sine', chord0.notes[n] + 36, i * 4 - 4, g);
+    });
+
     // rhythm + lead layers
     this.kickGain = gain(0); this.kickGain.connect(this.bus);
     this.hatGain = gain(0); this.hatGain.connect(this.bus);
@@ -248,6 +264,7 @@ export class AudioEngine {
 
     this._writeAcc += dt;
     if (this._writeAcc < 0.04) return; // write audio params at ~25 Hz
+    const wdt = this._writeAcc; // time since the last parameter write
     this._writeAcc = 0;
 
     const night = clamp(T.nightFactor, 0, 1), set = (p, v, tc) => p.setTargetAtTime(v, now, tc);
@@ -256,6 +273,10 @@ export class AudioEngine {
     set(this.padGain.gain, L.pad * (1 - 0.25 * this.energy), 0.3);
     set(this.subGain.gain, L.sub, 0.3);
     set(this.shimmerGain.gain, L.shimmer * this.alt, 0.12);
+    const wantBuff = (T.chimeActive || T.harpActive) && !crashed ? 1 : 0;
+    this.buffLevel += (wantBuff - this.buffLevel) * (1 - Math.exp(-wdt / 0.25));
+    set(this.buffGain.gain, L.buff * this.buffLevel, 0.08);
+    set(this.buffLfo.frequency, T.harpActive ? 7.5 : 4.5, 0.1);
     set(this.padFilter.frequency, lerp(C.PAD_CUTOFF_DAY, C.PAD_CUTOFF_NIGHT, night), 0.5);
     set(this.sawBus.gain, 0.045 * lerp(1, 0.35, night), 0.5);   // brighter saws by day...
     set(this.triBus.gain, 0.08 * lerp(0.5, 1.1, night), 0.5);   // ...rounder triangles by night
@@ -301,6 +322,7 @@ export class AudioEngine {
     this.subVoices[0].osc.frequency.setTargetAtTime(mtof(chord.root), t, tc);
     this.subVoices[1].osc.frequency.setTargetAtTime(mtof(chord.root + 12), t, tc);
     this.shimmerVoices.forEach((v, i) => v.osc.frequency.setTargetAtTime(mtof(chord.notes[i + 2] + 24), t, tc * 1.5));
+    this.buffVoices.forEach((v, i) => v.osc.frequency.setTargetAtTime(mtof(chord.notes[[0, 2, 3][i]] + 36), t, tc * 1.5));
   }
 
   _scheduleStep(step, t) {
@@ -467,6 +489,62 @@ export class AudioEngine {
       this._voice({ type: 'sawtooth', freq: f, detune: 7, t: st, a: 0.02, d: 1.6, peak, filterHz: 3200, dest: this.fxGain });
     }
     this._voice({ type: 'sine', freq: 120, sweepTo: 36, sweepTime: 0.7, t, a: 0.01, d: 0.9, peak: 0.35 + 0.1 * Math.min(count, 6), dest: this.fxGain });
+  }
+
+  // Crisp pentatonic ding. Consecutive coins climb the scale (resets after 1.1 s without a pickup).
+  onCoinPickup() {
+    this.filterKick = Math.max(this.filterKick, 0.4);
+    if (!this._live()) return;
+    const now = this.ctx.currentTime;
+    if (now - this._lastCoin > 1.1) this.coinChain = 0;
+    this._lastCoin = now;
+    const i = 5 + this.coinChain, f = SCALE[i], f2 = SCALE[Math.min(i + 2, SCALE.length - 1)], t = now + 0.002;
+    this.coinChain = Math.min(9, this.coinChain + 1);
+    this._voice({ type: 'sine', freq: f, t, a: 0.002, d: 0.32, peak: 0.34, dest: this.fxGain });
+    this._voice({ type: 'triangle', freq: f * 2, t, a: 0.002, d: 0.16, peak: 0.1, dest: this.fxGain });
+    this._voice({ type: 'sine', freq: f2, t: t + 0.065, a: 0.002, d: 0.5, peak: 0.3, dest: this.fxGain });
+    this._voice({ type: 'sine', freq: f2 * 2.01, t: t + 0.065, a: 0.002, d: 0.3, peak: 0.08, dest: this.fxGain });
+  }
+
+  // kind 'chime': four-note golden strum rising through the scale; 'harp': fast ten-note glissando with a sparkle on top.
+  onMultiplierPickup(e) {
+    const harp = !!e && e.kind === 'harp';
+    this.filterKick = 0.9;
+    this.flash = 1;
+    if (!this._live()) return;
+    const t = this.ctx.currentTime + 0.003;
+    if (harp) {
+      for (let i = 0; i < 10; i++) {
+        const f = SCALE[Math.min(SCALE.length - 1, 3 + Math.floor(i * 1.15))], st = t + i * 0.034;
+        this._voice({ type: 'triangle', freq: f, t: st, a: 0.002, d: 0.9, peak: 0.2, filterHz: 5200, dest: this.fxGain });
+        this._voice({ type: 'sine', freq: f * 2, t: st, a: 0.002, d: 0.5, peak: 0.07, dest: this.fxGain });
+      }
+      this._voice({ type: 'sine', freq: SCALE[SCALE.length - 1] * 2, t: t + 0.36, a: 0.002, d: 1.2, peak: 0.16, dest: this.fxGain });
+    } else {
+      [7, 9, 11, 13].forEach((idx, i) => {
+        const f = SCALE[idx], st = t + i * 0.055;
+        this._voice({ type: 'sine', freq: f, t: st, a: 0.002, d: 1.1, peak: 0.28, dest: this.fxGain });
+        this._voice({ type: 'sine', freq: f * 2.01, t: st, a: 0.002, d: 0.6, peak: 0.1, dest: this.fxGain });
+        this._voice({ type: 'triangle', freq: f * 3, t: st, a: 0.002, d: 0.3, peak: 0.04, dest: this.fxGain });
+      });
+    }
+  }
+
+  onBuffEnd() { // soft two-note descent when a multiplier runs out
+    if (!this._live()) return;
+    const t = this.ctx.currentTime + 0.003;
+    this._voice({ type: 'sine', freq: SCALE[8], t, a: 0.004, d: 0.35, peak: 0.16, dest: this.fxGain });
+    this._voice({ type: 'sine', freq: SCALE[5], t: t + 0.09, a: 0.004, d: 0.5, peak: 0.16, dest: this.fxGain });
+  }
+
+  onPurchase() { // Workshop confirm: bright rising fifth (works while the game is paused)
+    this.flash = Math.max(this.flash, 0.6);
+    if (!this._live()) return;
+    const t = this.ctx.currentTime + 0.003;
+    [[6, 0], [10, 0.08], [13, 0.16]].forEach(([idx, dt]) => {
+      this._voice({ type: 'sine', freq: SCALE[idx], t: t + dt, a: 0.003, d: 0.8, peak: 0.25, dest: this.fxGain });
+      this._voice({ type: 'triangle', freq: SCALE[idx] * 2, t: t + dt, a: 0.003, d: 0.4, peak: 0.06, dest: this.fxGain });
+    });
   }
 
   onRockSmash(e) { // crisp noise crack + a short stabbed Cm add9 shatter
