@@ -46,6 +46,9 @@ export class Player extends Emitter {
     this.comboCount = 0;        // live multiplier (1x, 2x, ...); 0 = no combo running
     this.comboPoints = 0;       // un-banked points; banks as comboPoints * comboCount
     this.trickScore = 0;        // banked total
+    this.scoreMult = 1;         // Overdrive Harp multiplier applied when a combo banks (set by main.js)
+    this.speedMult = 1;         // Resonance Board: scales base speed
+    this.flipMult = 1;          // Resonance Board: scales flip torque and max flip rate
     this.crashedAt = 0;
     this.time = 0;
     this.particles = [];
@@ -85,11 +88,11 @@ export class Player extends Emitter {
     if (this.jumpBufferMs > 0) { this._jump(terrain, 'ground'); return; }
 
     const ang = terrain.getSlopeAngleAt(this.x), sinA = Math.sin(ang);
-    const target = C.BASE_SPEED + this.boost;
+    const target = C.BASE_SPEED * this.speedMult + this.boost;
     this.vx += Math.max(0, sinA - C.SLOPE_NEUTRAL_SIN) * C.SLOPE_ACCEL_FACTOR * dt;
     if (sinA < 0) this.vx += sinA * C.SLOPE_ACCEL_FACTOR * 0.25 * dt; // uphill kickers cost a little speed
     this.vx += (target - this.vx) * C.SPEED_RELAX * dt;
-    this.vx = Math.min(C.MAX_SPEED, Math.max(C.BASE_SPEED * 0.5, this.vx));
+    this.vx = Math.min(C.MAX_SPEED * this.speedMult, Math.max(C.BASE_SPEED * 0.5, this.vx));
 
     const vyT = this.vx * Math.tan(ang);
     const nx = this.x + this.vx * dt, ny = terrain.getHeightAt(nx);
@@ -130,7 +133,7 @@ export class Player extends Emitter {
     if (this.jumpBufferMs > 0 && this.coyoteMs > 0) this._jump(terrain, 'coyote');
 
     if (input.held) {
-      this.angVel = Math.max(-C.MAX_FLIP_SPEED, this.angVel - C.FLIP_ANGULAR_ACCEL * dt);
+      this.angVel = Math.max(-C.MAX_FLIP_SPEED * this.flipMult, this.angVel - C.FLIP_ANGULAR_ACCEL * this.flipMult * dt);
     } else {
       const aim = terrain.getSlopeAngleAt(this.x + this.vx * 0.35);
       this.angVel += wrapPi(aim - this.rotation) * C.AUTO_TUCK_TORQUE * dt;
@@ -287,14 +290,14 @@ export class Player extends Emitter {
 
   _bank() {
     if (this.comboCount <= 0) return;
-    const pts = Math.round(this.comboPoints * this.comboCount), count = this.comboCount;
+    const pts = Math.round(this.comboPoints * this.comboCount * this.scoreMult), count = this.comboCount;
     this.trickScore += pts;
     this.comboCount = 0;
     this.comboPoints = 0;
     this.burst(this.x, this.y - 18, 30, {
       colors: ['#ffd27a', '#ffffff', '#ffe9b0'], speed: [200, 460], add: true, size: [2, 4], life: [0.4, 0.8], gravity: 380,
     });
-    this.emit('bank', { points: pts, count, total: this.trickScore });
+    this.emit('bank', { points: pts, count, total: this.trickScore, mult: this.scoreMult });
   }
 
   _dropCombo() {

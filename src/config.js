@@ -121,6 +121,44 @@ export const CONFIG = Object.freeze({
   SPRAY_MIN_SIN: 0.42,        // slopes steeper than this throw snow spray
   SPRAY_RATE: 140,
 
+  // --- Economy (Milestone 4) ---
+  SAVE_KEY: 'harmonicDescent_save_v1',
+  COIN_VALUE: 1,
+  COIN_START_PX: 2000,            // coins may appear from here (hazards still wait for SAFE_ZONE_PX)
+  COIN_ROW_CHANCE: 0.35,          // chance an empty chunk gets a short row of coins on the slope
+  COIN_ARC_CHANCE: 0.4,           // chance a hazard chunk gets a coin arc over / along its feature
+  COIN_ROW_COUNT: [4, 6],
+  COIN_SPACING: 60,
+  COIN_PICK_RADIUS: 30,
+  CHIME_START_PX: 3000,
+  CHIME_RADIUS: 34,
+  HARP_RADIUS: 42,
+  HARP_CHANCE: 0.7,               // chance a chasm gets an Overdrive Harp floating over its jump arc
+  HARP_EXTEND: 1.2,               // seconds added by a clean flip or a grind while Overdrive is active
+  HARP_EXTEND_CAP: 1.6,           // remaining time can't exceed base duration x this
+  MAGNET_SPEED: 700,
+  // Echo upgrades. Index = tier (0 = default). costs[i] buys tier i+1.
+  UPGRADES: {
+    chime: {
+      name: 'Gilded Chime', blurb: 'A floating bell. Multiplies every coin you collect while it rings.',
+      costs: [120, 320, 700, 1400, 2800],
+      durations: [6, 8, 10, 13, 16, 16],
+      mults: [2, 2, 2, 2, 3, 3],
+      spawn: [0.10, 0.14, 0.18, 0.22, 0.26, 0.30], // chance per chunk
+    },
+    harp: {
+      name: 'Overdrive Harp', blurb: 'Hangs high over chasms. Multiplies banked trick score; flips and grinds keep it alive.',
+      costs: [150, 380, 800, 1600, 3200],
+      durations: [5, 6.2, 7.4, 8.6, 9.8, 11],
+      mults: [2, 2, 2, 3, 3, 3],
+    },
+  },
+  // Permanent gear, bought with Gold Coins.
+  GEAR: {
+    magnet: { name: 'Harmonic Magnet', blurb: 'Gently pulls nearby coins toward the rider.', cost: 80, radius: 170 },
+    board: { name: 'Resonance Board', blurb: '+10% base speed and flip torque.', cost: 200, speedMult: 1.1, flipMult: 1.1 },
+  },
+
   // --- Audio (Milestone 3) ---
   AUDIO_BPM: 116,
   AUDIO_LOOKAHEAD: 0.2,           // seconds of music scheduled ahead of the audio clock
@@ -141,7 +179,7 @@ export const CONFIG = Object.freeze({
   FILTER_KICK_MULT: 5,            // stingers briefly open the filter by up to this multiple
   AUDIO_ENERGY_SPEED_MIN: 450,    // player.speed where percussion starts to fade in
   AUDIO_ENERGY_SPEED_MAX: 900,    // ...and where it is fully in
-  AUDIO_LAYER_GAINS: { master: 0.85, pad: 0.55, sub: 0.5, shimmer: 0.3, kick: 0.8, hat: 0.22, arp: 0.3, lead: 0.32, fx: 0.7 },
+  AUDIO_LAYER_GAINS: { master: 0.85, pad: 0.55, sub: 0.5, shimmer: 0.3, kick: 0.8, hat: 0.22, arp: 0.3, lead: 0.32, fx: 0.7, buff: 0.1 },
   PAD_CUTOFF_DAY: 2600,           // pad warmth: bright by day, dark by night
   PAD_CUTOFF_NIGHT: 900,
   REVERB_SECONDS: 2.8,

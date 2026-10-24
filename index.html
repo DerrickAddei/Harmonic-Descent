@@ -14,7 +14,19 @@
   <div id="hud">
     <div class="panel stat"><span class="label">Distance</span><span id="distance" class="value">0 m</span></div>
     <div class="panel stat"><span class="label">Speed</span><span id="speed" class="value">0 km/h</span></div>
-    <div class="panel stat"><span class="label">Tricks</span><span id="tricks" class="value">0</span></div>
+    <div id="coinsStat" class="panel stat coins"><span class="label"><i class="gem coin" aria-hidden="true"></i>Coins</span><span id="coins" class="value">0</span></div>
+    <div id="echoesStat" class="panel stat echoes"><span class="label"><i class="gem echo" aria-hidden="true"></i>Echoes</span><span id="echoes" class="value">0</span></div>
+  </div>
+
+  <div id="buffs" aria-live="off">
+    <div class="buff chime" data-kind="chime">
+      <div class="top"><span class="name">Gilded Chime</span><span class="time">0.0s</span></div>
+      <div class="bar"><i></i></div>
+    </div>
+    <div class="buff harp" data-kind="harp">
+      <div class="top"><span class="name">Overdrive Harp</span><span class="time">0.0s</span></div>
+      <div class="bar"><i></i></div>
+    </div>
   </div>
 
   <div id="combo" class="panel" aria-live="polite">
@@ -27,13 +39,38 @@
   <div id="crash" class="panel hidden">
     <strong>Wiped out</strong>
     <span id="crashDistance">0 m</span>
+    <span id="crashRun" class="run">+0 Coins · +0 Echoes</span>
     <span class="prompt">Restart (R / Tap)</span>
+    <button id="openWorkshop" class="ws-open" type="button" tabindex="-1">Open Workshop (W)</button>
   </div>
 
   <button id="audioToggle" class="panel" type="button" tabindex="-1" aria-pressed="false" aria-label="Mute sound (M)">
     <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     <span id="audioLabel" class="audio-label">Sound</span>
   </button>
+
+  <div id="workshop" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="wsTitle">
+    <div class="ws-panel panel">
+      <header class="ws-head">
+        <h2 id="wsTitle">Workshop</h2>
+        <div class="ws-wallet">
+          <div class="chip coins"><i class="gem coin" aria-hidden="true"></i><b id="wsCoins">0</b><small>Coins</small></div>
+          <div class="chip echoes"><i class="gem echo" aria-hidden="true"></i><b id="wsEchoes">0</b><small>Echoes</small></div>
+        </div>
+        <button id="wsClose" class="ws-close" type="button" aria-label="Close Workshop (Esc / W)">&times;</button>
+      </header>
+      <p id="wsMsg" class="ws-msg" role="status" aria-live="polite">Spend Echoes on pickups, Coins on gear.</p>
+      <section>
+        <h3>Echo Upgrades <small>bought with Echoes</small></h3>
+        <div id="wsUpgrades" class="cards"></div>
+      </section>
+      <section>
+        <h3>Permanent Gear <small>bought with Coins</small></h3>
+        <div id="wsGear" class="cards"></div>
+      </section>
+      <footer class="ws-foot"><span id="wsStats"></span><span class="hint">Esc / W to close</span></footer>
+    </div>
+  </div>
 
   <script type="module" src="./src/main.js"></script>
 </body>

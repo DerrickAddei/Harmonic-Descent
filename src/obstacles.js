@@ -23,16 +23,21 @@ function mulberry32(a) {
  (rocks / rail / roof / chasm / nothing), chosen deterministically from the terrain seed.
  update() must run BEFORE TerrainManager.update() each frame: chasms are registered with the
  terrain before its vertex buffer reaches them.
- Events: grind, rockSmash, rockHit.
+ Collectibles (Milestone 4): Gold Coin rows/arcs, Gilded Chime and Overdrive Harp pickups are placed
+ from a SEPARATE seeded RNG stream per chunk, so hazard layout is identical with or without them.
+ Events: grind, rockSmash, rockHit, coinPickup {coin,x,y}, multiplierPickup {kind,x,y}.
 */
 export class ObstacleManager extends Emitter {
-  constructor(terrain) {
+  constructor(terrain, economy = null) {
     super();
     this.terrain = terrain;
+    this.economy = economy; // optional: supplies Chime spawn chance and Magnet radius
     this.seed = terrain.seed;
     this.rocks = [];
     this.surfaces = []; // grindable rails + roofs
-    this.nextChunk = Math.ceil(C.SAFE_ZONE_PX / C.CHUNK_WIDTH);
+    this.coins = [];    // {x, y, ph, alive, pulled}
+    this.pickups = [];  // {id, kind: 'chime'|'harp', x, y, ph, alive}
+    this.nextChunk = Math.ceil(C.COIN_START_PX / C.CHUNK_WIDTH); // coins start before the hazard-free zone ends
     this._id = 1;
     this._frame = 0;
   }
@@ -44,23 +49,108 @@ export class ObstacleManager extends Emitter {
       const minX = camera.x - (windowWidth * C.CAMERA_LEAD_X / C.MIN_ZOOM + 500);
       this.rocks = this.rocks.filter((r) => r.alive && r.x > minX);
       this.surfaces = this.surfaces.filter((s) => s.x1 > minX);
+      this.coins = this.coins.filter((c) => c.alive && c.x > minX);
+      this.pickups = this.pickups.filter((p) => p.alive && p.x > minX);
     }
   }
 
   // ---------- spawning ----------
   _spawnChunk(k) {
     const start = k * C.CHUNK_WIDTH;
-    if (start < C.SAFE_ZONE_PX) return; // grace period: nothing in the first 250 m
+    const cr = mulberry32(((this.seed ^ 0x51ed270b) ^ Math.imul(k + 1, 0x85ebca6b)) >>> 0); // collectibles stream
+    if (start < C.SAFE_ZONE_PX) { // grace period: no hazards in the first 250 m, but coins may appear
+      this._spawnCollectibles(start, cr, 'empty', [], [], null);
+      return;
+    }
     const rnd = mulberry32((this.seed ^ Math.imul(k + 1, 0x9e3779b1)) >>> 0);
     const diff = clamp((start - C.SAFE_ZONE_PX) / C.DIFFICULTY_RAMP_PX, 0, 1);
     const table = [['empty', 0.1], ['rocks', 0.32], ['rail', 0.2], ['roof', 0.16], ['chasm', 0.12 + 0.1 * diff]];
     let r = rnd() * table.reduce((s, e) => s + e[1], 0), kind = 'empty';
     for (const [name, w] of table) if ((r -= w) < 0) { kind = name; break; }
 
+    const r0 = this.rocks.length, s0 = this.surfaces.length, cs = this.terrain.chasms, lastChasm = cs[cs.length - 1];
     if (kind === 'rocks') this._spawnRocks(start, rnd, diff);
     else if (kind === 'rail') this._spawnRail(start, rnd);
     else if (kind === 'roof') this._spawnRoof(start, rnd);
     else if (kind === 'chasm' && !this._spawnChasm(start, rnd, diff)) this._spawnRocks(start, rnd, diff);
+
+    const rocks = this.rocks.slice(r0), surfaces = this.surfaces.slice(s0);
+    const chasm = cs[cs.length - 1] !== lastChasm ? cs[cs.length - 1] : null;
+    const actual = chasm ? 'chasm' : surfaces.length ? 'surface' : rocks.length ? 'rocks' : 'empty';
+    this._spawnCollectibles(start, cr, actual, rocks, surfaces, chasm);
+  }
+
+  // ---------- collectibles ----------
+  _spawnCollectibles(start, cr, kind, rocks, surfaces, chasm) {
+    // Fixed number of rolls per chunk so upgrades (Chime chance) never shift other decisions.
+    const chimeRoll = cr(), rowRoll = cr(), arcRoll = cr(), harpRoll = cr(), jitter = cr(), pick = cr();
+    if (kind === 'empty') {
+      const chance = start < C.SAFE_ZONE_PX ? Math.min(0.6, C.COIN_ROW_CHANCE + 0.2) : C.COIN_ROW_CHANCE;
+      if (rowRoll < chance) this._coinRow(start + 220 + jitter * 320, cr);
+    } else if (arcRoll < C.COIN_ARC_CHANCE) {
+      if (kind === 'rocks') this._coinsOverRock(rocks[Math.floor(pick * rocks.length)], cr);
+      else if (kind === 'surface') this._coinsAlongSurface(surfaces[0], cr);
+      else this._coinsOverChasm(chasm, cr);
+    }
+    if (kind === 'chasm' && harpRoll < C.HARP_CHANCE) this._addHarp(chasm, cr);
+    if (start >= C.CHIME_START_PX) {
+      const chance = this.economy ? this.economy.chimeChance() : C.UPGRADES.chime.spawn[0];
+      if (chimeRoll < chance) this._addChime(start + 960, cr);
+    }
+  }
+
+  _coin(x, y, cr) { this.coins.push({ x, y, ph: cr() * TAU, alive: true, pulled: false }); }
+
+  // Gentle arc hugging the slope.
+  _coinRow(x0, cr) {
+    const n = C.COIN_ROW_COUNT[0] + Math.floor(cr() * (C.COIN_ROW_COUNT[1] - C.COIN_ROW_COUNT[0] + 1)), t = this.terrain;
+    for (let i = 0; i < n; i++) {
+      const x = x0 + i * C.COIN_SPACING, u = n > 1 ? i / (n - 1) : 0.5;
+      this._coin(x, t.heightFn(x) - 38 - 26 * Math.sin(Math.PI * u), cr);
+    }
+  }
+
+  // Five coins forming a hop-over arc above a rock.
+  _coinsOverRock(rock, cr) {
+    if (!rock) return;
+    const t = this.terrain, bump = clamp(rock.h + 50, 70, 120);
+    for (let i = 0; i < 5; i++) {
+      const u = i / 4, x = rock.x - 120 + 240 * u;
+      this._coin(x, t.heightFn(x) - 36 - bump * Math.sin(Math.PI * u), cr);
+    }
+  }
+
+  // Coins riding the rail / roof ridge, at grind height.
+  _coinsAlongSurface(s, cr) {
+    if (!s) return;
+    const a = s.kind === 'roof' ? s.xa + 30 : s.x0 + 50, b = s.kind === 'roof' ? s.xb - 30 : s.x1 - 50;
+    let n = 0;
+    for (let x = a; x <= b && n < 9; x += C.COIN_SPACING, n++) this._coin(x, s.yAt(x) - 34, cr);
+  }
+
+  // Body-centre jump trajectory off the chasm kicker (fit to the measured jump arc).
+  _jumpArcY(c, s) {
+    const yl = this.terrain.heightFn(c.x0);
+    return yl - 1.945 * s + 0.00519 * s * s - C.PLAYER_HEIGHT * 0.5;
+  }
+
+  _coinsOverChasm(c, cr) {
+    if (!c) return;
+    const gap = c.x1 - c.x0;
+    for (const f of [0.18, 0.32, 0.68, 0.82]) this._coin(c.x0 + gap * f, this._jumpArcY(c, gap * f) - 8, cr);
+  }
+
+  _addHarp(c, cr) {
+    const s = (c.x1 - c.x0) * 0.5;
+    this.pickups.push({ id: this._id++, kind: 'harp', x: c.x0 + s, y: this._jumpArcY(c, s), ph: cr() * TAU, alive: true });
+  }
+
+  _addChime(x, cr) {
+    const t = this.terrain;
+    for (const c of t.chasms) if (x > c.x0 - c.kickLen - 80 && x < c.x1 + 80) return;
+    for (const s of this.surfaces) if (x > s.x0 - 80 && x < s.x1 + 80) return;
+    for (const r of this.rocks) if (Math.abs(r.x - x) < 100) return;
+    this.pickups.push({ id: this._id++, kind: 'chime', x, y: t.heightFn(x) - 46, ph: cr() * TAU, alive: true });
   }
 
   _spawnRocks(start, rnd, diff) {
@@ -121,7 +211,44 @@ export class ObstacleManager extends Emitter {
   }
 
   // ---------- collisions (call after every Player.update substep) ----------
-  resolve(player) {
+  resolve(player, dt = 1 / 120) {
+    this._resolveHazards(player);
+    this._collect(player, dt);
+  }
+
+  _collect(player, dt) {
+    if (player.state === PlayerState.CRASHED) return;
+    const cx = player.x, cy = player.y - C.PLAYER_HEIGHT * 0.5;
+    const mag = this.economy ? this.economy.magnetRadius() : 0;
+    for (const c of this.coins) {
+      if (!c.alive) continue;
+      let dx = cx - c.x, dy = cy - c.y;
+      if (Math.abs(dx) > mag + 400 && !c.pulled) continue;
+      let d = Math.hypot(dx, dy);
+      if (mag > 0 && d > C.COIN_PICK_RADIUS && (c.pulled || d < mag)) {
+        c.pulled = true; // once captured by the Harmonic Magnet a coin keeps homing
+        const step = Math.min(d, (C.MAGNET_SPEED + Math.max(0, player.vx)) * dt);
+        c.x += (dx / d) * step; c.y += (dy / d) * step;
+        dx = cx - c.x; dy = cy - c.y; d = Math.hypot(dx, dy);
+      }
+      if (d <= C.COIN_PICK_RADIUS) {
+        c.alive = false;
+        player.burst(c.x, c.y, 6, { colors: ['#ffd24a', '#fff2b0'], speed: [60, 220], size: [1.5, 3], life: [0.3, 0.55], add: true });
+        this.emit('coinPickup', { coin: c, x: c.x, y: c.y });
+      }
+    }
+    for (const p of this.pickups) {
+      if (!p.alive || Math.abs(p.x - cx) > 120) continue;
+      const r = p.kind === 'harp' ? C.HARP_RADIUS : C.CHIME_RADIUS;
+      if (Math.hypot(cx - p.x, cy - p.y) > r) continue;
+      p.alive = false;
+      const col = p.kind === 'harp' ? ['#5ff3ff', '#ffffff', '#b58cff'] : ['#ffd24a', '#fff2b0', '#ffffff'];
+      player.burst(p.x, p.y, 26, { colors: col, speed: [120, 460], size: [2, 4.5], life: [0.5, 1], add: true });
+      this.emit('multiplierPickup', { kind: p.kind, x: p.x, y: p.y });
+    }
+  }
+
+  _resolveHazards(player) {
     if (player.state === PlayerState.CRASHED) return;
     const px = player.x, py = player.y;
 
@@ -162,7 +289,7 @@ export class ObstacleManager extends Emitter {
   }
 
   // ---------- rendering ----------
-  render(ctx, view, palette, glow = 0) {
+  render(ctx, view, palette, glow = 0, time = 0) {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     for (const s of this.surfaces) {
@@ -173,6 +300,63 @@ export class ObstacleManager extends Emitter {
       if (!r.alive || r.x < view.left - 150 || r.x > view.right + 150) continue;
       this._drawRock(ctx, r, glow, palette);
     }
+    this._drawCollectibles(ctx, view, glow, time);
+  }
+
+  _drawCollectibles(ctx, view, glow, time) {
+    ctx.save();
+    for (const c of this.coins) {
+      if (!c.alive || c.x < view.left - 40 || c.x > view.right + 40) continue;
+      const w = Math.abs(Math.cos(time * 3.2 + c.ph)), bob = Math.sin(time * 2 + c.ph) * 2.5;
+      ctx.save();
+      ctx.translate(c.x, c.y + bob);
+      ctx.shadowColor = 'rgba(255,210,90,0.9)';
+      ctx.shadowBlur = 8 + 8 * glow;
+      ctx.fillStyle = '#ffd24a';
+      ctx.beginPath(); ctx.ellipse(0, 0, Math.max(1.8, 11 * w), 11, 0, 0, TAU); ctx.fill();
+      if (w > 0.3) {
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#fff2b0'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 0, Math.max(1, 6.5 * w), 6.5, 0, 0, TAU); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    for (const p of this.pickups) {
+      if (!p.alive || p.x < view.left - 80 || p.x > view.right + 80) continue;
+      const bob = Math.sin(time * 2.2 + p.ph) * 4, pulse = 0.5 + 0.5 * Math.sin(time * 4 + p.ph);
+      ctx.save();
+      ctx.translate(p.x, p.y + bob);
+      if (p.kind === 'chime') {
+        ctx.strokeStyle = `rgba(255,210,90,${0.25 + 0.25 * pulse})`; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, 26 + 4 * pulse, 0, TAU); ctx.stroke();
+        ctx.rotate(Math.sin(time * 2.4 + p.ph) * 0.18);
+        ctx.shadowColor = 'rgba(255,210,90,0.95)'; ctx.shadowBlur = 14 + 6 * glow;
+        ctx.fillStyle = '#f6c453'; ctx.strokeStyle = '#fff0b8'; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-15, 10); ctx.bezierCurveTo(-15, 2, -10, -2, -9, -12);
+        ctx.bezierCurveTo(-8, -20, 8, -20, 9, -12); ctx.bezierCurveTo(10, -2, 15, 2, 15, 10);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, 13, 3.5, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, -21, 2.5, 0, TAU); ctx.stroke();
+      } else {
+        const rgb = C.GLOW_CYAN;
+        ctx.strokeStyle = rgba(rgb, 0.25 + 0.3 * pulse); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, 32 + 6 * pulse, 0, TAU); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, 0, 44 + 8 * pulse, 0, TAU); ctx.globalAlpha = 0.4; ctx.stroke(); ctx.globalAlpha = 1;
+        ctx.shadowColor = rgba(rgb, 0.95); ctx.shadowBlur = 16 + 6 * glow;
+        ctx.strokeStyle = '#7df9ff'; ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-14, 16); ctx.quadraticCurveTo(-19, -18, 4, -20); ctx.quadraticCurveTo(17, -16, 14, 16); ctx.closePath();
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5;
+        for (let i = 0; i < 5; i++) {
+          const x = -9 + i * 5, top = -15 + i * 3.2, wob = Math.sin(time * 16 + i * 1.7 + p.ph) * 1.4;
+          ctx.beginPath(); ctx.moveTo(x, top); ctx.quadraticCurveTo(x + wob, (top + 15) / 2, x, 15); ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   _glowStroke(ctx, rgb, glow, width) {
