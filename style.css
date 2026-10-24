@@ -97,11 +97,66 @@ html, body {
   pointer-events: none;
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
-#combo.hidden { opacity: 0; transform: translateY(-6px); visibility: hidden; }
-#comboCount { font-size: 1.7rem; font-weight: 700; color: var(--gold); font-variant-numeric: tabular-nums; }
-#combo.banked #comboCount { color: #fff; }
-#comboLabel { font-size: 0.78rem; opacity: 0.75; }
+#combo:not(.show) { opacity: 0; transform: translateY(-6px); visibility: hidden; }
+#combo .mult {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--gold);
+  text-shadow: 0 0 16px rgba(255, 210, 122, 0.5);
+  font-variant-numeric: tabular-nums;
+  transform-origin: right center;
+}
+#combo .pts { font-size: 0.9rem; opacity: 0.85; font-variant-numeric: tabular-nums; }
+#combo.bump .mult { animation: bump 0.22s ease-out; }
+#combo.banked .mult { color: var(--ink); }
+@keyframes bump { from { transform: scale(1.35); } to { transform: scale(1); } }
+
+/* Audio mute / reactivity toggle (bottom-right). --lv = output level, --pulse = beat. */
+#audioToggle {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 8px 32px rgba(8, 10, 40, 0.28), 0 0 calc(var(--pulse, 0) * 18px) rgba(255, 210, 122, 0.5);
+}
+#audioToggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+#audioToggle .eq { display: flex; align-items: flex-end; gap: 3px; height: 16px; }
+#audioToggle .eq i {
+  display: block;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--gold);
+  transform-origin: bottom;
+  transform: scaleY(calc(0.2 + var(--lv, 0) * var(--m, 0.8)));
+}
+#audioToggle .eq i:nth-child(1) { --m: 0.7; }
+#audioToggle .eq i:nth-child(2) { --m: 1; }
+#audioToggle .eq i:nth-child(3) { --m: 0.6; }
+#audioToggle .eq i:nth-child(4) { --m: 0.85; }
+#audioToggle.muted { opacity: 0.65; }
+#audioToggle.muted .eq i { background: var(--ink); transform: scaleY(0.2); }
+
+@media (max-width: 560px) {
+  .stat { min-width: 0; padding: 6px 10px; }
+  .value { font-size: 1.1rem; }
+  #hud { gap: 6px; }
+  #combo { padding: 6px 12px; min-width: 0; }
+  #combo .mult { font-size: 1.5rem; }
+  #audioToggle { padding: 6px 10px; }
+  #audioToggle .audio-label { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   #trick, #crash, #combo { transition: none; }
+  #combo.bump .mult { animation: none; }
 }
