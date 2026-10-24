@@ -1,15 +1,21 @@
 import { CONFIG as C } from './config.js';
 import { TerrainManager } from './terrain.js';
 import { Player, PlayerState } from './player.js';
+import { Atmosphere } from './atmosphere.js';
+import { ObstacleManager } from './obstacles.js';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const el = {
   distance: document.getElementById('distance'),
   speed: document.getElementById('speed'),
+  tricks: document.getElementById('tricks'),
   trick: document.getElementById('trick'),
   crash: document.getElementById('crash'),
   crashDistance: document.getElementById('crashDistance'),
+  combo: document.getElementById('combo'),
+  comboMult: document.getElementById('comboMult'),
+  comboPts: document.getElementById('comboPts'),
 };
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -39,7 +45,8 @@ class Camera {
 
 let W = 1, H = 1, dpr = 1;
 const camera = new Camera();
-let terrain, player;
+const atmosphere = new Atmosphere(); // keeps running across restarts so the day keeps turning
+let terrain, player, obstacles;
 const input = { held: false, pressed: false };
 
 function resize() {
@@ -51,35 +58,70 @@ function resize() {
 }
 
 // ---- HUD ----
-let trickTimer = 0, lastDist = '', lastSpeed = '';
+let trickTimer = 0, bankUntil = 0;
+let lastDist = '', lastSpeed = '', lastTricks = '', lastMult = '', lastPts = '';
+const fmt = (n) => Math.round(n).toLocaleString('en-US');
+
 function showTrick(name) {
   el.trick.textContent = name;
   el.trick.classList.add('show');
   clearTimeout(trickTimer);
   trickTimer = setTimeout(() => el.trick.classList.remove('show'), 1600);
 }
+function bumpCombo() {
+  el.combo.classList.remove('bump', 'banked');
+  void el.combo.offsetWidth; // restart the CSS animation
+  el.combo.classList.add('bump');
+  bankUntil = 0;
+}
 function updateHud() {
   const d = `${Math.max(0, Math.floor(player.x / C.PX_PER_METER))} m`;
   const s = `${Math.round((player.speed / C.PX_PER_METER) * 3.6)} km/h`;
+  const t = fmt(player.trickScore);
   if (d !== lastDist) { el.distance.textContent = d; lastDist = d; }
   if (s !== lastSpeed) { el.speed.textContent = s; lastSpeed = s; }
+  if (t !== lastTricks) { el.tricks.textContent = t; lastTricks = t; }
+
+  if (player.comboCount > 0) {
+    const m = `${player.comboCount}x`, p = `+${fmt(player.comboPoints * player.comboCount)}`;
+    if (m !== lastMult) { el.comboMult.textContent = m; lastMult = m; }
+    if (p !== lastPts) { el.comboPts.textContent = p; lastPts = p; }
+    el.combo.classList.add('show');
+  } else if (performance.now() < bankUntil) {
+    el.combo.classList.add('show');
+  } else {
+    el.combo.classList.remove('show', 'banked');
+  }
 }
 
 // ---- Game lifecycle ----
 function reset() {
   terrain = new TerrainManager();
+  obstacles = new ObstacleManager(terrain);
   player = new Player(terrain, 0);
-  player.onTrick = (name) => showTrick(name);
-  player.onCrash = () => {
+  player.on('trick', ({ name }) => showTrick(name));
+  player.on('combo', bumpCombo);
+  player.on('bank', ({ points, count }) => {
+    el.comboMult.textContent = `${count}x`;
+    el.comboPts.textContent = `Banked +${fmt(points)}`;
+    lastMult = lastPts = '';
+    el.combo.classList.remove('bump');
+    el.combo.classList.add('show', 'banked');
+    bankUntil = performance.now() + 1400;
+  });
+  player.on('crash', () => {
     el.crashDistance.textContent = `${Math.max(0, Math.floor(player.x / C.PX_PER_METER))} m`;
     el.crash.classList.remove('hidden');
-  };
+  });
   camera.snapTo(player);
+  obstacles.update(camera, W / camera.unit); // must precede terrain.update (registers chasms first)
   terrain.update(camera, W / camera.unit);
   input.held = input.pressed = false;
+  bankUntil = 0;
   el.crash.classList.add('hidden');
   el.trick.classList.remove('show');
-  lastDist = lastSpeed = '';
+  el.combo.classList.remove('show', 'banked', 'bump');
+  lastDist = lastSpeed = lastTricks = lastMult = lastPts = '';
 }
 
 // ---- Input (mouse / touch / keyboard) ----
@@ -100,43 +142,29 @@ window.addEventListener('blur', release);
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) press(); }
   else if (e.code === 'KeyR') reset();
+  else if (e.code === 'KeyN') atmosphere.skipPhase(); // debug: jump to the next time-of-day phase
 });
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') release(); });
-// iOS Safari ignores user-scalable=no, so block scroll/pinch explicitly.
 document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 ['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', resize);
 
-// ---- Rendering ----
-function drawSky() {
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#1c2150');
-  g.addColorStop(0.55, '#a05f8e');
-  g.addColorStop(1, '#f6b894');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-
-  const sx = W * 0.72, sy = H * 0.34, r = 36 * camera.unit + 10;
-  const glow = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 5);
-  glow.addColorStop(0, 'rgba(255, 232, 196, 0.85)');
-  glow.addColorStop(1, 'rgba(255, 232, 196, 0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#fff1d6';
-  ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill();
-}
-
+// ---- Rendering (back to front) ----
 function render() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawSky();
+  atmosphere.renderBackground(ctx, W, H, camera); // sky, stars, sun/moon, 4 parallax layers + pines
   ctx.save();
   ctx.translate(W * C.CAMERA_LEAD_X, H * C.CAMERA_ANCHOR_Y);
   ctx.scale(camera.scale, camera.scale);
   ctx.translate(-camera.x, -camera.y);
-  terrain.render(ctx, camera.view());
-  player.render(ctx);
+  const view = camera.view();
+  terrain.render(ctx, view, atmosphere.palette, atmosphere.glow);
+  obstacles.render(ctx, view, atmosphere.palette, atmosphere.glow);
+  player.render(ctx, atmosphere.glow);
+  player.renderParticles(ctx);
   ctx.restore();
+  atmosphere.renderForeground(ctx, W, H); // falling snow, screen space
 }
 
 // ---- Main loop ----
@@ -146,15 +174,30 @@ function frame(now) {
   last = now;
   const dt = raw * game.timeScale;
 
+  obstacles.update(camera, W / camera.unit);
   terrain.update(camera, W / camera.unit);
   const steps = Math.max(1, Math.ceil(dt / C.PHYSICS_STEP)), h = dt / steps;
-  if (dt > 0) for (let i = 0; i < steps; i++) player.update(h, input, terrain);
+  if (dt > 0) {
+    for (let i = 0; i < steps; i++) {
+      player.update(h, input, terrain);
+      obstacles.resolve(player);
+    }
+  }
   camera.update(dt, player, terrain);
+  atmosphere.update(dt, camera, W, H);
 
   updateHud();
   render();
   requestAnimationFrame(frame);
 }
+
+// Handles for debugging and for Milestone 3 audio wiring.
+window.harmonicDescent = {
+  game, atmosphere, camera,
+  get player() { return player; },
+  get terrain() { return terrain; },
+  get obstacles() { return obstacles; },
+};
 
 resize();
 reset();

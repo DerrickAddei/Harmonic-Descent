@@ -48,7 +48,7 @@ html, body {
   gap: 10px;
   pointer-events: none;
 }
-.stat { display: flex; flex-direction: column; min-width: 104px; padding: 8px 16px; }
+.stat { display: flex; flex-direction: column; min-width: 96px; padding: 8px 16px; }
 .label { font-size: 0.74rem; letter-spacing: 0.03em; opacity: 0.7; }
 .value { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 
@@ -85,6 +85,23 @@ html, body {
 #crash .prompt { opacity: 0.8; font-size: 0.95rem; }
 #crash.hidden { opacity: 0; visibility: hidden; }
 
+#combo {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
+  min-width: 124px;
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#combo.hidden { opacity: 0; transform: translateY(-6px); visibility: hidden; }
+#comboCount { font-size: 1.7rem; font-weight: 700; color: var(--gold); font-variant-numeric: tabular-nums; }
+#combo.banked #comboCount { color: #fff; }
+#comboLabel { font-size: 0.78rem; opacity: 0.75; }
+
 @media (prefers-reduced-motion: reduce) {
-  #trick, #crash { transition: none; }
+  #trick, #crash, #combo { transition: none; }
 }

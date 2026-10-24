@@ -1,50 +1,126 @@
 // Centralized tunables. Units: pixels and seconds unless noted. World Y points DOWN.
+const PX_PER_METER = 20;
+
 export const CONFIG = Object.freeze({
   // --- Physics ---
   GRAVITY: 1500,
   BASE_SPEED: 430,
   MAX_SPEED: 1150,
-  BOOST_SPEED_BONUS: 240,     // added to target speed per backflip landed
-  BOOST_DECAY: 0.3,           // exponential decay rate of boost per second
-  SLOPE_ACCEL_FACTOR: 900,    // acceleration on slopes steeper than SLOPE_NEUTRAL_SIN
-  SLOPE_NEUTRAL_SIN: 0.3,     // sin(angle) at which slope adds no acceleration (~17.5 deg)
-  SPEED_RELAX: 0.5,           // how quickly speed relaxes toward BASE_SPEED + boost
+  BOOST_SPEED_BONUS: 240,
+  BOOST_DECAY: 0.3,
+  SLOPE_ACCEL_FACTOR: 900,
+  SLOPE_NEUTRAL_SIN: 0.3,
+  SPEED_RELAX: 0.5,
   AIR_DRAG: 0.04,
-  TAKEOFF_EPS: 0.35,          // px of terrain fall-away (at 60fps) before leaving the ground
+  TAKEOFF_EPS: 0.35,
 
   // --- Jump & flip ---
   JUMP_VELOCITY: 640,
-  JUMP_BUFFER_MS: 100,        // a tap just before landing still jumps
-  FLIP_ANGULAR_ACCEL: 36,     // rad/s^2, backward
-  MAX_FLIP_SPEED: 8.5,        // rad/s
-  AUTO_TUCK_TORQUE: 7,        // nose-align strength when input released in air
+  JUMP_BUFFER_MS: 100,
+  FLIP_ANGULAR_ACCEL: 36,
+  MAX_FLIP_SPEED: 8.5,
+  AUTO_TUCK_TORQUE: 7,
   COYOTE_TIME_MS: 120,
-  FLIP_COUNT_THRESHOLD: 0.85, // fraction of a full rotation that counts as a flip
+  FLIP_COUNT_THRESHOLD: 0.85,
   MAX_BOOST_STACK: 3,
-  AURA_DURATION: 3.0,         // seconds of golden aura / invulnerability
+  AURA_DURATION: 3.0,
+  LANDING_ANGLE_TOLERANCE: Math.PI / 3.5,
 
-  // --- Landing forgiveness ---
-  LANDING_ANGLE_TOLERANCE: Math.PI / 3.5, // ~51 deg vs terrain tangent
+  // --- Player hitbox (feet at player.y) ---
+  PLAYER_HALF_WIDTH: 13,
+  PLAYER_HEIGHT: 36,
+
+  // --- Grinding (rails + rooftops) ---
+  GRIND_SLOPE_ACCEL: 260,     // gravity pull along the rail
+  GRIND_BOOST_RATE: 110,      // boost speed gained per second on a rail
+  GRIND_JUMP_FACTOR: 0.9,     // jump-off strength relative to JUMP_VELOCITY
+  GRIND_SPARK_RATE: 90,       // sparks per second
+  GRIND_POINTS_PER_SEC: 90,
+  GRIND_LAND_POINTS: 150,
+  GRIND_SNAP_TOLERANCE: 6,    // px of "was above the rail" forgiveness when crossing it
+  GRIND_REARM_SEC: 0.3,       // can't re-grab the rail you just left for this long
+
+  // --- Combo / scoring ---
+  FLIP_POINTS: 200,
+  ROCK_BOUNCE_POINTS: 250,
+  ROCK_SMASH_POINTS: 120,
+  ROCK_BOUNCE_VELOCITY: 520,
+  ROCK_HITBOX_SCALE: 0.75,
 
   // --- Camera ---
-  CAMERA_LEAD_X: 0.3,         // fraction of screen width where the focus point sits
-  CAMERA_ANCHOR_Y: 0.55,      // fraction of screen height for the focus point
+  CAMERA_LEAD_X: 0.3,
+  CAMERA_ANCHOR_Y: 0.55,
   BASE_ZOOM: 1.0,
   MIN_ZOOM: 0.55,
 
   // --- Terrain ---
   SEGMENT_WIDTH: 25,
   NOISE_AMPLITUDE: 150,
-  NOISE_FREQUENCY: 0.0022,    // lattice spacing = 1 / frequency px for octave 0
+  NOISE_FREQUENCY: 0.0022,
   NOISE_OCTAVES: 4,
   NOISE_PERSISTENCE: 0.45,
-  BASE_SLOPE_DROP: 0.32,      // dy/dx of the continuous downhill (~17.7 deg)
+  BASE_SLOPE_DROP: 0.32,
+
+  // --- Obstacle spawning ---
+  SAFE_ZONE_M: 250,
+  SAFE_ZONE_PX: 250 * PX_PER_METER,   // no hazards before this x
+  CHUNK_WIDTH: 1000,
+  DIFFICULTY_RAMP_PX: 60000,          // distance at which difficulty is fully ramped
+  ROCK_WIDTH: [46, 98],
+  ROCK_ASPECT: [0.55, 0.9],           // height / width
+  RAIL_LENGTH: [340, 560],
+  RAIL_POLE_HEIGHT: [85, 110],
+  RAIL_SAG: [24, 40],
+  RAIL_CATENARY_K: 2.2,
+  ROOF_WIDTH: [240, 320],
+  ROOF_WALL_HEIGHT: [70, 100],
+  ROOF_RISE: [50, 70],
+  ROOF_OVERHANG: 14,
+  CHASM_GAP: [220, 330],
+  CHASM_KICK_LEN: 200,
+  CHASM_KICK_HEIGHT: 70,
+  CHASM_DEPTH: 520,
+
+  // --- Day / night cycle ---
+  CYCLE_SECONDS: 160,                 // DAWN -> DAY -> DUSK -> NIGHT, 40s each
+  START_TIME_OF_DAY: 0.04,            // 0..1 position in the cycle at run start
+  PALETTES: [
+    { name: 'DAWN', night: 0.4, zenith: '#3b3a6e', horizon: '#f2a38a', fog: '#f6c6a8', sun: '#ffd29a',
+      layers: ['#a583ad', '#86699a', '#624f84', '#40396e'], groundTop: '#2a2a52', groundBottom: '#0e0f26', crust: '#fff4e6' },
+    { name: 'DAY', night: 0.0, zenith: '#6fb1e0', horizon: '#f9e4c8', fog: '#fbe9d2', sun: '#fff4d6',
+      layers: ['#cfd9ea', '#a9bcd8', '#7f98c0', '#566fa0'], groundTop: '#2f3d6e', groundBottom: '#141a3a', crust: '#ffffff' },
+    { name: 'DUSK', night: 0.6, zenith: '#2a2560', horizon: '#f07a5a', fog: '#f0a080', sun: '#ff9a66',
+      layers: ['#a85d7c', '#7e4973', '#583761', '#35264f'], groundTop: '#241f4a', groundBottom: '#0b0a1e', crust: '#ffe2cc' },
+    { name: 'NIGHT', night: 1.0, zenith: '#070b1f', horizon: '#1e2a5a', fog: '#26336a', sun: '#ffd29a',
+      layers: ['#2b3a6e', '#202c58', '#161f44', '#0e1530'], groundTop: '#101634', groundBottom: '#04050f', crust: '#cfe3ff' },
+  ],
+
+  // --- Parallax (index 0 = farthest) ---
+  PARALLAX_SCROLL: [0.08, 0.18, 0.32, 0.55],
+  PARALLAX_BASE_Y: [0.46, 0.54, 0.63, 0.72],   // ridge baseline as a fraction of screen height
+  PARALLAX_AMP: [110, 95, 85, 70],
+  PARALLAX_WAVELENGTH: [1100, 800, 520, 360],
+  PARALLAX_FOG: [0.6, 0.45, 0.28, 0.12],
+  PARALLAX_RIDGED: [true, true, false, false],
+  TREE_SPACING: 22,
+  TREE_HEIGHT: [14, 40],
+  STAR_COUNT: 140,
+  SNOW_COUNT: 130,
+
+  // --- Night visibility rim-glow ---
+  GLOW_CYAN: [95, 243, 255],
+  GLOW_GOLD: [255, 210, 122],
+
+  // --- Particles ---
+  PARTICLE_MAX: 420,
+  SPRAY_MIN_SIN: 0.42,        // slopes steeper than this throw snow spray
+  SPRAY_RATE: 140,
 
   // --- Loop / HUD / visuals ---
   MAX_FRAME_DT: 0.05,
   PHYSICS_STEP: 1 / 120,
   RESTART_DELAY_MS: 350,
-  PX_PER_METER: 20,
+  PX_PER_METER,
   SCARF_NODES: 12,
   SCARF_SEGMENT: 6,
 });
