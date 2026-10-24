@@ -1,6 +1,11 @@
 // Centralized tunables. Units: pixels and seconds unless noted. World Y points DOWN.
 const PX_PER_METER = 20;
 
+// C-minor pentatonic (C Eb F G Bb) across 3 octaves, C4..Bb6, as frequencies in Hz (15 notes).
+const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+const SCALE_FREQS = [];
+for (let oct = 0; oct < 3; oct++) for (const step of [0, 3, 5, 7, 10]) SCALE_FREQS.push(mtof(60 + 12 * oct + step));
+
 export const CONFIG = Object.freeze({
   // --- Physics ---
   GRAVITY: 1500,
@@ -115,6 +120,40 @@ export const CONFIG = Object.freeze({
   PARTICLE_MAX: 420,
   SPRAY_MIN_SIN: 0.42,        // slopes steeper than this throw snow spray
   SPRAY_RATE: 140,
+
+  // --- Audio (Milestone 3) ---
+  AUDIO_BPM: 116,
+  AUDIO_LOOKAHEAD: 0.2,           // seconds of music scheduled ahead of the audio clock
+  AUDIO_SCHEDULER_MS: 25,         // scheduler timer interval
+  CHORD_BARS: 1,                  // bars per chord; 4 chords = a 4-bar loop
+  SCALE_FREQS,
+  CHORDS: [                       // MIDI notes sorted ascending so pad voices glide smoothly
+    { name: 'Cm9',    root: 36, notes: [48, 51, 55, 58, 62] },
+    { name: 'Abmaj7', root: 32, notes: [48, 51, 55, 56, 60] },
+    { name: 'Fm9',    root: 29, notes: [51, 53, 55, 56, 60] },
+    { name: 'G7sus4', root: 31, notes: [53, 55, 60, 62, 65] },
+  ],
+  FILTER_GROUND_HZ: 380,          // master low-pass on the ground
+  FILTER_AIR_HZ: 7500,            // ...fully open at FILTER_ALT_MAX_PX above the terrain
+  FILTER_CRASH_HZ: 120,
+  FILTER_ALT_MAX_PX: 260,
+  FILTER_SPEED_LIFT_OCT: 0.5,     // extra octaves of cutoff at full speed energy on the ground (0 = strict 380 Hz)
+  FILTER_KICK_MULT: 5,            // stingers briefly open the filter by up to this multiple
+  AUDIO_ENERGY_SPEED_MIN: 450,    // player.speed where percussion starts to fade in
+  AUDIO_ENERGY_SPEED_MAX: 900,    // ...and where it is fully in
+  AUDIO_LAYER_GAINS: { master: 0.85, pad: 0.55, sub: 0.5, shimmer: 0.3, kick: 0.8, hat: 0.22, arp: 0.3, lead: 0.32, fx: 0.7 },
+  PAD_CUTOFF_DAY: 2600,           // pad warmth: bright by day, dark by night
+  PAD_CUTOFF_NIGHT: 900,
+  REVERB_SECONDS: 2.8,
+  REVERB_DECAY_POW: 3,
+  REVERB_WET_DAY: 0.14,
+  REVERB_WET_NIGHT: 0.4,
+  DELAY_BEATS: 0.75,              // dotted eighth ping-pong
+  DELAY_FEEDBACK: 0.62,
+  DELAY_WET_DAY: 0.14,
+  DELAY_WET_NIGHT: 0.24,
+  TAPE_CRASH_CENTS: -1100,        // pitch drop of sustained voices on crash
+  TAPE_SLOWMO_CENTS_PER_OCT: 420, // pitch sag per octave of time-scale slowdown
 
   // --- Loop / HUD / visuals ---
   MAX_FRAME_DT: 0.05,
